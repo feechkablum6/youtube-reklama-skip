@@ -58,9 +58,23 @@ async function openGeminiTab() {
     return tab;
 }
 
+let pendingVideoToAnalyze = null; // { videoId, videoUrl }
+
 // --- Обработка сообщений ---
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // 0. Скрипт Gemini прогрузился и готов
+    if (message.action === 'gemini_ready') {
+        const geminiTabId = sender.tab.id;
+        console.debug(`[RSKIP Background] Gemini скрипт загрузился во вкладке ${geminiTabId}`);
+        if (pendingVideoToAnalyze) {
+            startAnalysisInGemini(geminiTabId, pendingVideoToAnalyze.videoId, pendingVideoToAnalyze.videoUrl);
+            pendingVideoToAnalyze = null;
+        }
+        sendResponse({ status: 'ok' });
+        return true;
+    }
+
     // 1. YouTube запрашивает анализ видео
     if (message.action === 'analyze_video_request') {
         const videoId = message.videoId;
@@ -71,7 +85,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         handleYouTubeRequest(videoId, videoUrl, senderTabId);
 
-        // Возвращаем true, чтобы оставить канал открытым для асинхронного ответа (sendResponse) - хотя мы будем использовать chrome.tabs.sendMessage
+        // Возвращаем true, чтобы оставить канал открытым для асинхронного ответа (sendResponse)
         sendResponse({ status: 'processing' });
         return true;
     }
@@ -114,30 +128,60 @@ async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
         if (!videoWaiters[videoId]) videoWaiters[videoId] = [];
         videoWaiters[videoId].push(senderTabId);
 
-        // Ищем форму Gemini
+        sendUpdateToYouTube(videoId, "⌛ Открываем чат Gemini...");
+
+        // Ищем открытую вкладку Gemini
         let geminiTab = await findGeminiTab();
         if (!geminiTab) {
             console.debug(`[RSKIP Background] Вкладка Gemini не найдена. Создаю новую...`);
-            geminiTab = await openGeminiTab();
-
-            // Нужно время, чтобы Gemini прогрузился перед отправкой события
-            // Скрипт-инжектор сам скажет background'у что он готов (в будущем), но пока сделаем задержку
-            await new Promise(r => setTimeout(r, 5000));
+            pendingVideoToAnalyze = { videoId, videoUrl };
+            await openGeminiTab();
+            // Дальше ждем события 'gemini_ready'
+            return;
+        } else {
+            // Вкладка уже существует, проверим отвечает ли она (скрипт заинжекчен)
+            console.debug(`[RSKIP Background] Вкладка найдена. Проверяю готовность...`);
+            try {
+                const res = await chrome.tabs.sendMessage(geminiTab.id, { action: 'ping' });
+                if (res && res.status === 'ok') {
+                    startAnalysisInGemini(geminiTab.id, videoId, videoUrl);
+                } else {
+                    throw new Error("No response"); // Скрипт не ответил, перезагружаем
+                }
+            } catch (e) {
+                console.debug(`[RSKIP Background] Gemini не отвечает, перезагружаю вкладку...`);
+                pendingVideoToAnalyze = { videoId, videoUrl };
+                await chrome.tabs.reload(geminiTab.id);
+            }
         }
-
-        activeGeminiTabId = geminiTab.id;
-        console.debug(`[RSKIP Background] Отправляю задачу во вкладку Gemini (${activeGeminiTabId})...`);
-
-        // Даем приказ Gemini
-        chrome.tabs.sendMessage(activeGeminiTabId, {
-            action: 'start_gemini_analysis',
-            videoId: videoId,
-            videoUrl: videoUrl
-        });
 
     } catch (error) {
         console.error(`[RSKIP Background] Ошибка при обработке запроса:`, error);
+        sendUpdateToYouTube(videoId, "❌ Ошибка при старте анализа! Попробуйте позже.", true);
         currentAnalyzingVideoId = null; // Сброс состояния
+    }
+}
+
+function startAnalysisInGemini(geminiTabId, videoId, videoUrl) {
+    activeGeminiTabId = geminiTabId;
+    console.debug(`[RSKIP Background] Отправляю задачу во вкладку Gemini (${activeGeminiTabId})...`);
+    sendUpdateToYouTube(videoId, "🤖 ИИ щупает видео: ищем рекламу...");
+
+    chrome.tabs.sendMessage(activeGeminiTabId, {
+        action: 'start_gemini_analysis',
+        videoId: videoId,
+        videoUrl: videoUrl
+    });
+}
+
+function sendUpdateToYouTube(videoId, text, isError = false) {
+    const waitingTabs = videoWaiters[videoId] || [];
+    for (const tabId of waitingTabs) {
+        chrome.tabs.sendMessage(tabId, {
+            action: 'rskip_status_update',
+            text: text,
+            isError: isError
+        }).catch(e => { }); // Игнорим ошибки (если таба закрылась)
     }
 }
 

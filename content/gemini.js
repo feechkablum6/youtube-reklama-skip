@@ -5,6 +5,9 @@
 
 console.log("[RSKIP Gemini] Скрипт-инжектор инициализирован.");
 
+// Сообщаем Background'у, что скрипт загружен и готов принимать команды
+chrome.runtime.sendMessage({ action: 'gemini_ready' });
+
 // --- Селекторы (Вынесены для удобства обновления, если Google поменяет дизайн) ---
 const SEL = {
     // Ввод
@@ -25,6 +28,11 @@ let currentVideoUrl = null;
 
 // Обработчик сообщений от Background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'ping') {
+        sendResponse({ status: 'ok' });
+        return true;
+    }
+
     if (message.action === 'start_gemini_analysis') {
         currentVideoId = message.videoId;
         currentVideoUrl = message.videoUrl;

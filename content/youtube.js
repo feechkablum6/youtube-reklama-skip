@@ -54,8 +54,39 @@ function handleVideoChange() {
         isVideoParsed = false;
 
         clearMarkers();
+        showStatusToast('🚀 Отправляем видео в Gemini для анализа...');
         requestAnalysis(videoId, window.location.href);
     }
+}
+
+// --- UI Уведомления (Тосты) ---
+
+function showStatusToast(message, isError = false) {
+    let toast = document.getElementById('rskip-status-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'rskip-status-toast';
+        toast.style.cssText = `
+            position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 17, 21, 0.9); color: #fff;
+            padding: 10px 20px; border-radius: 8px; z-index: 99999;
+            font-family: Roboto, sans-serif; font-size: 14px;
+            pointer-events: none; transition: opacity 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        `;
+        document.body.appendChild(toast);
+    }
+
+    toast.textContent = message;
+    if (isError) toast.style.border = '1px solid #ff3366';
+    else toast.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+
+    toast.style.opacity = '1';
+
+    clearTimeout(toast.timeoutId);
+    toast.timeoutId = setTimeout(() => { toast.style.opacity = '0'; }, 4000);
 }
 
 // --- Коммуникация с Background ---
@@ -73,8 +104,13 @@ function requestAnalysis(videoId, videoUrl) {
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'rskip_timings_ready' && message.videoId === currentVideoId) {
         console.log(`[RSKIP YouTube] Получены тайминги:`, message.timings);
+        showStatusToast(`✅ Анализ завершен! Найдено зон: ${message.timings.length}`);
         currentTimings = message.timings;
         drawMarkers();
+    }
+
+    if (message.action === 'rskip_status_update') {
+        showStatusToast(message.text, message.isError);
     }
 });
 
