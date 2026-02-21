@@ -3,6 +3,17 @@
  * Имитирует действия пользователя: ввод промпта и отправка, чтение ответа.
  */
 
+// Переопределяем Visibility API, чтобы Gemini думал, что вкладка активна (даже если она в фоне)
+const injectCode = `
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
+    Object.defineProperty(document, 'hidden', { value: false, writable: false });
+    window.addEventListener('visibilitychange', e => e.stopImmediatePropagation(), true);
+`;
+const script = document.createElement('script');
+script.textContent = injectCode;
+(document.head || document.documentElement).appendChild(script);
+script.remove();
+
 console.log("[RSKIP Gemini] Скрипт-инжектор инициализирован.");
 
 // Сообщаем Background'у, что скрипт загружен и готов принимать команды
@@ -12,7 +23,11 @@ chrome.runtime.sendMessage({ action: 'gemini_ready' });
 const SEL = {
     // Ввод
     promptInput: 'div[aria-label="Enter a prompt for Gemini"].ql-editor',
+    promptInputAlt1: 'rich-textarea div[contenteditable="true"]',
+    promptInputAlt2: 'div[role="textbox"][contenteditable="true"]',
+    promptInputAlt3: 'textarea[aria-label="Enter a prompt here"]',
     sendBtn: 'button[aria-label="Send message"]',
+    sendBtnAlt: 'button.send-button',
 
     // Модель
     modelPickerBtn: 'button[aria-label="Open mode picker"]',
@@ -52,6 +67,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  */
 async function startAnalysisFlow() {
     try {
+        await waitForGeminiLoad();
         await ensureProModelSelected();
         await insertPromptAndSend();
         await waitForResponseAndExtract();
@@ -66,6 +82,31 @@ function reportErrorToBackground(msg) {
         action: 'gemini_analysis_error',
         videoId: currentVideoId,
         error: msg
+    });
+}
+
+/**
+ * Ждет, пока React-приложение Gemini отрендерит DOM-дерево
+ */
+async function waitForGeminiLoad() {
+    console.log("[RSKIP Gemini] Ожидаю загрузки интерфейса...");
+    return new Promise((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 40; // 20 секунд (по 500мс)
+
+        const interval = setInterval(() => {
+            attempts++;
+            const input = document.querySelector(`${SEL.promptInput}, ${SEL.promptInputAlt1}, ${SEL.promptInputAlt2}, ${SEL.promptInputAlt3}`);
+            
+            if (input) {
+                clearInterval(interval);
+                console.log("[RSKIP Gemini] Интерфейс загружен.");
+                resolve();
+            } else if (attempts > maxAttempts) {
+                clearInterval(interval);
+                reject(new Error("Таймаут ожидания интерфейса Gemini (возможно долго грузится страница)."));
+            }
+        }, 500);
     });
 }
 
@@ -90,7 +131,7 @@ async function ensureProModelSelected() {
     pickerBtn.click();
 
     // Ждем анимацию открытия меню
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 800));
 
     const menuItems = document.querySelectorAll(SEL.modelMenuItem);
     let proItem = Array.from(menuItems).find(item => item.textContent.toLowerCase().includes('pro') || item.textContent.toLowerCase().includes('advanced'));
@@ -98,7 +139,7 @@ async function ensureProModelSelected() {
     if (proItem) {
         console.log("[RSKIP Gemini] Переключаю на модель Pro...");
         proItem.click();
-        await new Promise(r => setTimeout(r, 1000)); // Ждем применения
+        await new Promise(r => setTimeout(r, 1500)); // Ждем применения
     } else {
         console.log("[RSKIP Gemini] Модель Pro не найдена в списке. Используем текущую.");
         // Закрываем меню (клик куда-нибудь)
@@ -113,11 +154,11 @@ async function insertPromptAndSend() {
     // Пробуем несколько возможных селекторов для поля
     const possibleInputs = [
         SEL.promptInput,
-        'rich-textarea div[contenteditable="true"]',
-        'div[role="textbox"][contenteditable="true"]',
-        'textarea[aria-label="Enter a prompt here"]'
+        SEL.promptInputAlt1,
+        SEL.promptInputAlt2,
+        SEL.promptInputAlt3
     ];
-
+    
     let inputArea = null;
     for (const s of possibleInputs) {
         inputArea = document.querySelector(s);
@@ -126,7 +167,7 @@ async function insertPromptAndSend() {
             break;
         }
     }
-
+    
     if (!inputArea) {
         throw new Error("Не найдено поле ввода промпта. Google изменил интерфейс.");
     }
@@ -153,35 +194,42 @@ async function insertPromptAndSend() {
   {"type": "highlight", "start": 120}
 ]`;
 
-    // Фокусируемся
+    // Фокусируемся (может игнорироваться в фоне)
     inputArea.focus();
 
-    // Вставляем текст
-    // 1. Пытаемся через execCommand (наиболее нативно)
-    const execSuccess = document.execCommand('insertText', false, promptText);
+    // 1. Пытаемся симулировать Paste (самый надежный способ для React)
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', promptText);
+    const pasteEvent = new ClipboardEvent('paste', {
+        clipboardData: dataTransfer,
+        bubbles: true,
+        cancelable: true
+    });
+    inputArea.dispatchEvent(pasteEvent);
 
-    // 2. Фолбэк на прямое изменение
-    if (!execSuccess) {
-        console.log("[RSKIP Gemini] execCommand не сработал, использую textContent");
-        if (inputArea.tagName.toLowerCase() === 'textarea') {
-            inputArea.value = promptText;
-        } else {
+    // 2. Фолбэк на execCommand (если в фокусе)
+    document.execCommand('insertText', false, promptText);
+    
+    // 3. Фолбэк на прямое изменение
+    if (inputArea.tagName && inputArea.tagName.toLowerCase() === 'textarea') {
+        inputArea.value = promptText;
+    } else {
+        if (!inputArea.textContent.includes("Проанализируй")) {
             inputArea.textContent = promptText;
         }
     }
 
-    // Выстреливаем события
-    inputArea.dispatchEvent(new InputEvent('input', { bubbles: true }));
-    inputArea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+    // Выстреливаем события Input для React
+    inputArea.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+    inputArea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true }));
 
-    // Небольшая задержка перед отправкой
-    await new Promise(r => setTimeout(r, 600));
+    // Ждем чтобы React обработал изменение состояния и активировал кнопку отправки
+    await new Promise(r => setTimeout(r, 1000));
 
     // Ищем кнопку отправки
     const possibleButtons = [
         SEL.sendBtn,
-        'button[aria-label="Send message"]',
-        'button.send-button'
+        SEL.sendBtnAlt
     ];
     let sendBtn = null;
     for (const s of possibleButtons) {
@@ -190,13 +238,12 @@ async function insertPromptAndSend() {
     }
 
     if (!sendBtn) {
-        // Фоллбэк: пытаемся найти любую кнопку с SVG отправки или просто по классу, которая не отключена
         throw new Error("Кнопка отправки не найдена или заблокирована стейтом.");
     }
 
     // Отправляем
     sendBtn.click();
-    console.log("[RSKIP Gemini] Промпт отправлен.");
+    console.log("[RSKIP Gemini] Промпт отправлен через клик.");
 }
 
 /**
@@ -221,8 +268,7 @@ async function waitForResponseAndExtract() {
                 const latestMessageContainer = messages[messages.length - 1];
                 const rawText = latestMessageContainer.textContent;
 
-                // Проверяем, закончил ли ИИ печатать (эвристика: если текст не меняется 2 секунды подряд, и мы видим [ и ] - ок)
-                // Но лучше просто искать JSON. Gemini обычно выплевывает его быстро после генерации.
+                // Проверяем, закончил ли ИИ печатать
                 const jsonMatch = extractJsonFromString(rawText);
 
                 if (jsonMatch) {
@@ -235,12 +281,12 @@ async function waitForResponseAndExtract() {
                 } else if (attempts > maxAttempts) {
                     clearInterval(checkInterval);
                     console.warn("[RSKIP Gemini] Таймаут ожидания ответа. Текст, который удалось получить:", rawText);
-                    reject(new Error("Timeout & Invalid JSON"));
+                    reject(new Error("Таймаут ожидания. Слишком долгая генерация либо ИИ ответил не в JSON."));
                 }
             } else if (attempts > maxAttempts) {
                 clearInterval(checkInterval);
                 console.warn("[RSKIP Gemini] Сообщение от ИИ так и не появилось.");
-                reject(new Error("No response message appeared"));
+                reject(new Error("Сообщение от ИИ так и не появилось."));
             }
         }, 500);
     });
