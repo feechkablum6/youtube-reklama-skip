@@ -25,8 +25,8 @@ const MARKER_STYLES = {
     greeting: { color: 'rgba(169, 169, 169, 0.7)', height: '100%', type: 'segment' }, // Темно-серый
 
     // Точки
-    chapter: { color: '#00FF00', size: '6px', type: 'point', icon: '📍' }, // Зеленая точка
-    highlight: { color: '#FFD700', size: '8px', type: 'point', icon: '⭐' } // Золотая звезда
+    chapter: { color: '#00FF00', size: '14px', type: 'point', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00FF00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>' }, // Зеленая точка-маркер
+    highlight: { color: '#FFD700', size: '14px', type: 'point', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="#FFD700" stroke="#FFD700" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' } // Золотая звезда
 };
 
 // Конфигурация того, что мы скипаем автоматически
@@ -196,12 +196,13 @@ function drawMarkers() {
                         background-color: ${styleDef.color};
                     `;
                 } else if (styleDef.type === 'point') {
-                    // Рисуем точку (иконку/метку над таймлайном)
-                    marker.textContent = styleDef.icon;
+                    // Рисуем точку (SVG-иконку над таймлайном)
+                    marker.innerHTML = styleDef.icon;
                     marker.style.cssText = `
                         position: absolute; left: calc(${startPercent}% - ${parseInt(styleDef.size) / 2}px); 
-                        bottom: 10px; /* Над линией */
-                        font-size: 14px; line-height: 1; text-shadow: 0 0 2px #000;
+                        bottom: 12px; /* Чуть выше линии */
+                        display: flex; justify-content: center; align-items: center;
+                        filter: drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
                     `;
                 }
 
