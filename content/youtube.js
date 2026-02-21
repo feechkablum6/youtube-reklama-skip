@@ -9,7 +9,10 @@ console.log("[RSKIP YouTube] Скрипт-инжектор инициализи�
 let currentVideoId = null;
 let currentTimings = [];
 let isVideoParsed = false;
-let autoSkipEnabled = true; // TODO: Брать из настроек
+let userSettings = {
+    globalAutoSkip: true,
+    categories: { sponsor: true, selfpromo: true, interaction: true, outro: true, preview: false, greeting: false }
+};
 
 // Настройки цветных меток (Полосы и Точки)
 const MARKER_STYLES = {
@@ -80,10 +83,25 @@ chrome.runtime.onMessage.addListener((message) => {
 // Следим за временем, чтобы делать скип
 const videoPoller = setInterval(() => {
     const videoElement = document.querySelector('video');
-    if (videoElement && currentTimings.length > 0 && autoSkipEnabled) {
+    if (videoElement && currentTimings.length > 0 && userSettings.globalAutoSkip) {
         checkAutoSkip(videoElement);
     }
 }, 500); // Проверяем 2 раза в секунду
+
+// Слушаем изменения настроек из Popup в реальном времени
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.rskip_settings) {
+        userSettings = changes.rskip_settings.newValue;
+        console.log("[RSKIP YouTube] Настройки обновлены:", userSettings);
+    }
+});
+
+// Загружаем настройки при старте (если они есть)
+chrome.storage.local.get('rskip_settings', (data) => {
+    if (data.rskip_settings) {
+        userSettings = data.rskip_settings;
+    }
+});
 
 function checkAutoSkip(videoElement) {
     const currentTime = videoElement.currentTime;
@@ -92,8 +110,8 @@ function checkAutoSkip(videoElement) {
     for (const t of currentTimings) {
         const styleDef = MARKER_STYLES[t.type];
 
-        // Скипаем только 'segment', и только если этот тип разрешен к скипу
-        if (styleDef && styleDef.type === 'segment' && AUTO_SKIP_TYPES.includes(t.type)) {
+        // Скипаем только 'segment', и только если этот тип разрешен к скипу юзером
+        if (styleDef && styleDef.type === 'segment' && userSettings.categories[t.type] === true) {
             // Если мы находимся внутри этого отвратительного сегмента
             // Учитываем небольшой запас (+1 сек к старту), чтобы не застрять в бесконечном цикле, если юзер кликнул ровно на начало
             if (currentTime >= t.start && currentTime < t.end - 1) {
