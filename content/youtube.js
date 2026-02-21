@@ -17,12 +17,12 @@ let userSettings = {
 // Настройки цветных меток (Полосы и Точки)
 const MARKER_STYLES = {
     // Сегменты (Полосы)
-    sponsor: { color: 'rgba(255, 0, 0, 0.7)', height: '100%', type: 'segment' }, // Красный
-    selfpromo: { color: 'rgba(255, 165, 0, 0.7)', height: '100%', type: 'segment' }, // Оранжевый
-    interaction: { color: 'rgba(255, 255, 0, 0.7)', height: '100%', type: 'segment' }, // Желтый
-    outro: { color: 'rgba(128, 128, 128, 0.7)', height: '100%', type: 'segment' }, // Серый
-    preview: { color: 'rgba(0, 191, 255, 0.7)', height: '100%', type: 'segment' }, // Светло-синий
-    greeting: { color: 'rgba(169, 169, 169, 0.7)', height: '100%', type: 'segment' }, // Темно-серый
+    sponsor: { color: 'rgba(239, 68, 68, 0.8)', height: '100%', type: 'segment' }, // red-500
+    selfpromo: { color: 'rgba(249, 115, 22, 0.8)', height: '100%', type: 'segment' }, // orange-500
+    interaction: { color: 'rgba(234, 179, 8, 0.8)', height: '100%', type: 'segment' }, // yellow-500
+    outro: { color: 'rgba(100, 116, 139, 0.8)', height: '100%', type: 'segment' }, // slate-500
+    preview: { color: 'rgba(14, 165, 233, 0.8)', height: '100%', type: 'segment' }, // sky-500
+    greeting: { color: 'rgba(139, 92, 246, 0.8)', height: '100%', type: 'segment' }, // violet-500
 
     // Точки
     chapter: { color: '#00FF00', size: '14px', type: 'point', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00FF00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>' }, // Зеленая точка-маркер
@@ -36,11 +36,19 @@ const AUTO_SKIP_TYPES = ['sponsor', 'selfpromo', 'interaction', 'outro', 'previe
 
 // YouTube - это SPA (Single Page Application). Следим за навигацией (событие от YouTube)
 document.addEventListener('yt-navigate-finish', handleVideoChange);
+document.addEventListener('yt-page-data-updated', handleVideoChange);
 
-// Для подстраховки (первичная загрузка)
+// Для подстраховки (первичная загрузка). Откладываем старт, чтобы скрипт успел до конца инициализировать переменные через const/let
 if (window.location.href.includes('/watch')) {
-    handleVideoChange();
+    setTimeout(handleVideoChange, 50);
 }
+
+// Ультимативный запасной вариант: проверяем URL каждую секунду на случай, если события YouTube не сработали
+setInterval(() => {
+    if (window.location.href.includes('/watch')) {
+        handleVideoChange();
+    }
+}, 1000);
 
 function handleVideoChange() {
     const urlParams = new URLSearchParams(window.location.search);
@@ -54,39 +62,153 @@ function handleVideoChange() {
         isVideoParsed = false;
 
         clearMarkers();
-        showStatusToast('🚀 Отправляем видео в Gemini для анализа...');
+        setStatus('loading', 'Отправлено на анализ в Gemini...');
         requestAnalysis(videoId, window.location.href);
     }
 }
 
 // --- UI Уведомления (Тосты) ---
 
-function showStatusToast(message, isError = false) {
-    let toast = document.getElementById('rskip-status-toast');
+const ICONS = {
+    loading: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: rskip-spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`,
+    success: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    error: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
+    sparkle: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #a855f7;"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>`
+};
+
+function injectStyles() {
+    if (document.getElementById('rskip-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'rskip-styles';
+    style.textContent = `
+        @keyframes rskip-spin { 100% { transform: rotate(360deg); } }
+        
+        #rskip-toast-container {
+            position: fixed; bottom: 120px; right: 24px; z-index: 99999;
+            display: flex; align-items: center; gap: 12px;
+            background: rgba(15, 17, 21, 0.75);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 100px; padding: 12px 18px;
+            color: #f8fafc; font-family: 'Inter', 'Roboto', sans-serif; font-size: 14px; font-weight: 500;
+            pointer-events: auto; transition: all 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            opacity: 0; transform: translateY(20px) scale(0.95);
+        }
+        #rskip-toast-container.rskip-visible { opacity: 1; transform: translateY(0) scale(1); }
+        
+        #rskip-toast-container.rskip-persistent {
+            padding: 10px; bottom: 24px; right: 24px; border-radius: 50%;
+            background: rgba(15, 17, 21, 0.9); box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+            border-color: rgba(168, 85, 247, 0.4); cursor: help;
+        }
+        #rskip-toast-container.rskip-persistent:hover {
+            padding: 10px 18px; border-radius: 100px; background: rgba(23, 25, 30, 0.95);
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.5);
+        }
+        
+        #rskip-toast-text {
+            white-space: nowrap; overflow: hidden; max-width: 300px;
+            transition: max-width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, margin 0.3s;
+        }
+        #rskip-toast-container.rskip-persistent #rskip-toast-text {
+            max-width: 0; opacity: 0; margin-left: 0; pointer-events: none;
+        }
+        #rskip-toast-container.rskip-persistent:hover #rskip-toast-text {
+            max-width: 300px; opacity: 1; margin-left: 4px; pointer-events: auto;
+        }
+        
+        .rskip-icon-wrapper { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        
+        /* Timelines / Markers */
+        .rskip-marker { transition: filter 0.2s, transform 0.2s; cursor: pointer; transform-origin: bottom; }
+        .rskip-marker:hover { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); transform: scaleY(1.4); z-index: 1000 !important; }
+        
+        body.rskip-hovering-marker .ytp-tooltip { display: none !important; opacity: 0 !important; }
+
+        .rskip-tooltip {
+            position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%) translateY(10px);
+            background: rgba(15, 17, 21, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px 16px;
+            color: #f8fafc; font-family: 'Inter', 'Roboto', sans-serif; font-size: 13px;
+            pointer-events: none; width: max-content; max-width: 320px; white-space: normal; opacity: 0;
+            transition: opacity 0.2s, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6); z-index: 99999; display: flex; flex-direction: column; gap: 4px;
+        }
+        .rskip-tooltip::after {
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border-width: 6px; border-style: solid; border-color: rgba(15,17,21,0.95) transparent transparent transparent;
+        }
+        .rskip-marker:hover .rskip-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+        
+        .rskip-tt-header { display: flex; align-items: center; gap: 8px; }
+        .rskip-tt-type { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.6px; }
+        .rskip-tt-time { color: rgba(255,255,255,0.5); font-size: 11px; }
+        .rskip-tt-desc { color: #cbd5e1; line-height: 1.5; white-space: normal; font-weight: 400; word-break: break-word; }
+        
+        /* Skip Toast overlay на плеер */
+        #rskip-skip-toast {
+            position: absolute; top: 32px; right: 32px;
+            background: rgba(15, 17, 21, 0.85); backdrop-filter: blur(12px);
+            border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 100px;
+            padding: 10px 20px; display: flex; align-items: center; gap: 12px;
+            color: #fff; font-family: 'Inter', 'Roboto', sans-serif; font-size: 14px; font-weight: 500;
+            pointer-events: none; opacity: 0; transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+            transform: translateY(-10px); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 99999;
+        }
+        #rskip-skip-toast.rskip-visible { opacity: 1; transform: translateY(0); }
+    `;
+    document.head.appendChild(style);
+}
+
+let toastTimeout = null;
+
+function setStatus(state, message) {
+    injectStyles();
+    let toast = document.getElementById('rskip-toast-container');
     if (!toast) {
         toast = document.createElement('div');
-        toast.id = 'rskip-status-toast';
-        toast.style.cssText = `
-            position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-            background: rgba(15, 17, 21, 0.9); color: #fff;
-            padding: 10px 20px; border-radius: 8px; z-index: 99999;
-            font-family: Roboto, sans-serif; font-size: 14px;
-            pointer-events: none; transition: opacity 0.3s;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        `;
+        toast.id = 'rskip-toast-container';
+        toast.innerHTML = `<div id="rskip-toast-icon" class="rskip-icon-wrapper"></div><div id="rskip-toast-text"></div>`;
         document.body.appendChild(toast);
     }
 
-    toast.textContent = message;
-    if (isError) toast.style.border = '1px solid #ff3366';
-    else toast.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+    const iconEl = toast.querySelector('#rskip-toast-icon');
+    const textEl = toast.querySelector('#rskip-toast-text');
 
-    toast.style.opacity = '1';
+    clearTimeout(toastTimeout);
+    toast.classList.remove('rskip-persistent', 'rskip-visible');
 
-    clearTimeout(toast.timeoutId);
-    toast.timeoutId = setTimeout(() => { toast.style.opacity = '0'; }, 4000);
+    // Сбрасываем рендеринг чтобы CSS-переход сработал
+    void toast.offsetWidth;
+    toast.classList.add('rskip-visible');
+
+    // Удаляем предыдущие обводки ошибки если были
+    toast.style.borderColor = '';
+
+    switch (state) {
+        case 'loading':
+            iconEl.innerHTML = ICONS.loading;
+            textEl.textContent = message || 'Анализируем видео...';
+            break;
+        case 'success':
+            iconEl.innerHTML = ICONS.success;
+            textEl.textContent = message || 'Анализ завершен';
+            toastTimeout = setTimeout(() => {
+                iconEl.innerHTML = ICONS.sparkle;
+                textEl.textContent = 'AI отслеживает сегменты';
+                toast.classList.add('rskip-persistent');
+            }, 3000); // через 3 сек сворачиваем в персистентную точку
+            break;
+        case 'error':
+            iconEl.innerHTML = ICONS.error;
+            textEl.textContent = message || 'Ошибка';
+            toast.style.borderColor = 'rgba(244, 63, 94, 0.4)';
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove('rskip-visible');
+            }, 4000);
+            break;
+    }
 }
 
 // --- Коммуникация с Background ---
@@ -103,14 +225,14 @@ function requestAnalysis(videoId, videoUrl) {
 // Слушаем ответы от Background
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'rskip_timings_ready' && message.videoId === currentVideoId) {
-        console.log(`[RSKIP YouTube] Получены тайминги:`, message.timings);
-        showStatusToast(`✅ Анализ завершен! Найдено зон: ${message.timings.length}`);
+        console.log(`[RSKIP YouTube] Получены тайминги: `, message.timings);
+        setStatus('success', `Таймлайны расставлены и сохранены. Зон: ${message.timings.length}`);
         currentTimings = message.timings;
         drawMarkers();
     }
 
     if (message.action === 'rskip_status_update') {
-        showStatusToast(message.text, message.isError);
+        setStatus(message.isError ? 'error' : 'loading', message.text);
     }
 });
 
@@ -155,35 +277,32 @@ function checkAutoSkip(videoElement) {
                 videoElement.currentTime = t.end;
 
                 // Показываем UI тост юзеру (опционально, реализуем позже)
-                showSkipToast(t.type);
+                showSkipToast(t.type, t.description);
                 return; // Перемотали, выходим из цикла
             }
         }
     }
 }
 
-function showSkipToast(type) {
-    // Временный минималистичный тост-уведомление поверх плеера
-    let toast = document.getElementById('rskip-toast');
+function showSkipToast(type, description = "") {
+    let toast = document.getElementById('rskip-skip-toast');
     if (!toast) {
         toast = document.createElement('div');
-        toast.id = 'rskip-toast';
-        toast.style.cssText = `
-            position: absolute; top: 10%; right: 5%;
-            background: rgba(0,0,0,0.8); color: #fff;
-            padding: 8px 16px; border-radius: 4px; z-index: 9999;
-            font-family: Roboto, Arial, sans-serif; font-size: 14px;
-            pointer-events: none; transition: opacity 0.3s;
-        `;
+        toast.id = 'rskip-skip-toast';
         const container = document.querySelector('#movie_player') || document.body;
-        container.appendChild(toast);
+        if (container) container.appendChild(toast);
     }
 
-    toast.textContent = `Skipped segment: ${type} (Gemini AI)`;
-    toast.style.opacity = '1';
+    const textDesc = description ? description : type.toUpperCase();
+    toast.innerHTML = `${ICONS.sparkle} <span>Скип: <b>${textDesc}</b></span>`;
+
+    // Сброс анимации
+    toast.classList.remove('rskip-visible');
+    void toast.offsetWidth;
+    toast.classList.add('rskip-visible');
 
     clearTimeout(toast.timeoutId);
-    toast.timeoutId = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+    toast.timeoutId = setTimeout(() => { toast.classList.remove('rskip-visible'); }, 3000);
 }
 
 // --- Отрисовка UI ---
@@ -218,8 +337,19 @@ function drawMarkers() {
                 if (!styleDef) return;
 
                 const startPercent = (t.start / duration) * 100;
-
                 const marker = document.createElement('div');
+                marker.className = 'rskip-marker';
+
+                const desc = t.description || 'ИИ пометил этот момент без описания.';
+                const tooltipHtml = `
+                    <div class="rskip-tooltip">
+                        <div class="rskip-tt-header">
+                            <span class="rskip-tt-type" style="color: ${styleDef.color}">${t.type}</span>
+                            <span class="rskip-tt-time">${formatTime(t.start)}${t.end ? ' - ' + formatTime(t.end) : ''}</span>
+                        </div>
+                        <div class="rskip-tt-desc">${desc}</div>
+                    </div>
+                `;
 
                 if (styleDef.type === 'segment') {
                     // Рисуем полосу (заливку региона)
@@ -231,20 +361,27 @@ function drawMarkers() {
                         width: ${widthPercent}%; height: ${styleDef.height};
                         background-color: ${styleDef.color};
                     `;
+                    marker.innerHTML = tooltipHtml;
                 } else if (styleDef.type === 'point') {
                     // Рисуем точку (SVG-иконку над таймлайном)
-                    marker.innerHTML = styleDef.icon;
                     marker.style.cssText = `
                         position: absolute; left: calc(${startPercent}% - ${parseInt(styleDef.size) / 2}px); 
                         bottom: 12px; /* Чуть выше линии */
                         display: flex; justify-content: center; align-items: center;
-                        filter: drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
                     `;
+                    marker.innerHTML = styleDef.icon + tooltipHtml; // SVG point + Tooltip
                 }
 
                 // Добавим тултип при наведении (нужно вернуть pointer-events на метку)
                 marker.style.pointerEvents = 'auto';
-                marker.title = `[Gemini] ${t.type} (${formatTime(t.start)})`;
+                
+                // Перехватываем hover чтобы скрыть дефолтный тултип Youtube
+                marker.addEventListener('mouseenter', () => {
+                    document.body.classList.add('rskip-hovering-marker');
+                });
+                marker.addEventListener('mouseleave', () => {
+                    document.body.classList.remove('rskip-hovering-marker');
+                });
 
                 container.appendChild(marker);
             });

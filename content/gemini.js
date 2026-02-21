@@ -97,7 +97,7 @@ async function waitForGeminiLoad() {
         const interval = setInterval(() => {
             attempts++;
             const input = document.querySelector(`${SEL.promptInput}, ${SEL.promptInputAlt1}, ${SEL.promptInputAlt2}, ${SEL.promptInputAlt3}`);
-            
+
             if (input) {
                 clearInterval(interval);
                 console.log("[RSKIP Gemini] Интерфейс загружен.");
@@ -158,7 +158,7 @@ async function insertPromptAndSend() {
         SEL.promptInputAlt2,
         SEL.promptInputAlt3
     ];
-    
+
     let inputArea = null;
     for (const s of possibleInputs) {
         inputArea = document.querySelector(s);
@@ -167,7 +167,7 @@ async function insertPromptAndSend() {
             break;
         }
     }
-    
+
     if (!inputArea) {
         throw new Error("Не найдено поле ввода промпта. Google изменил интерфейс.");
     }
@@ -176,22 +176,22 @@ async function insertPromptAndSend() {
 Найди точные тайминги (в секундах) для следующих категорий (если они есть):
 
 Сегменты (имеют начало и конец):
-1. sponsor: Платная реклама, реферальные ссылки, прямая реклама (не любимые проекты креатора).
-2. selfpromo: Неоплачиваемая или самореклама (мерч, донаты, с кем сотрудничали).
-3. interaction: Напоминания поставить лайк, подписаться, поделиться (даже короткие).
-4. outro: Титры или финальные заставки (без сюжетной/обучающей инфы).
-5. preview: Подборка фрагментов того, что будет дальше в видео, краткий обзор.
-6. greeting: Трейлеры, озвученные приветствия и прощания, пустая болтовня в начале без информации.
+1. sponsor: Платная реклама, реферальные ссылки, прямая реклама.
+2. selfpromo: Неоплачиваемая или самореклама.
+3. interaction: Напоминания поставить лайк, подписаться.
+4. outro: Титры или финальные заставки.
+5. preview: Подборка фрагментов того, что будет дальше.
+6. greeting: Трейлеры, приветствия, болтовня в начале.
 
-Точки (имеют только точное время начала):
-7. chapter: Названия основных глав/разметок видео.
-8. highlight: Самая важная часть видео, ответ на кликбейт ("Видео начинается здесь").
+Точки (имеют только время начала):
+7. chapter: Названия основных глав.
+8. highlight: Самая важная часть видео.
 
-Выведи СТРОГО валидный JSON-массив и больше ни единого слова (без markdown).
+Выведи СТРОГО валидный JSON-массив и больше ни единого слова (без markdown). Для каждого найденного элемента ОБЯЗАТЕЛЬНО добавь поле "description" с кратким (1 короткое предложение) описанием того, что происходит в этом моменте или сегменте (например: "Реклама Raid Shadow Legends" или "Напоминает о подписке на канал").
 Пример:
 [
-  {"type": "sponsor", "start": 15, "end": 45},
-  {"type": "highlight", "start": 120}
+  {"type": "sponsor", "start": 15, "end": 45, "description": "Прямая реклама VPN"},
+  {"type": "highlight", "start": 120, "description": "Начало сборки ПК"}
 ]`;
 
     // Фокусируемся (может игнорироваться в фоне)
@@ -209,7 +209,7 @@ async function insertPromptAndSend() {
 
     // 2. Фолбэк на execCommand (если в фокусе)
     document.execCommand('insertText', false, promptText);
-    
+
     // 3. Фолбэк на прямое изменение
     if (inputArea.tagName && inputArea.tagName.toLowerCase() === 'textarea') {
         inputArea.value = promptText;

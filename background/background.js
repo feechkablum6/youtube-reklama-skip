@@ -106,7 +106,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'gemini_analysis_error') {
         const videoId = message.videoId;
         console.error(`[RSKIP Background] Ошибка от Gemini:`, message.error);
-        sendUpdateToYouTube(videoId, `❌ Ошибка ИИ: ${message.error}`, true);
+        sendUpdateToYouTube(videoId, `Ошибка ИИ: ${message.error}`, true);
 
         if (currentAnalyzingVideoId === videoId) {
             currentAnalyzingVideoId = null; // Освобождаем
@@ -143,7 +143,7 @@ async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
         if (!videoWaiters[videoId]) videoWaiters[videoId] = [];
         videoWaiters[videoId].push(senderTabId);
 
-        sendUpdateToYouTube(videoId, "⌛ Открываем чат Gemini...");
+        sendUpdateToYouTube(videoId, "Открываем чат Gemini...");
 
         // Ищем открытую вкладку Gemini
         let geminiTab = await findGeminiTab();
@@ -172,7 +172,7 @@ async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
 
     } catch (error) {
         console.error(`[RSKIP Background] Ошибка при обработке запроса:`, error);
-        sendUpdateToYouTube(videoId, "❌ Ошибка при старте анализа! Попробуйте позже.", true);
+        sendUpdateToYouTube(videoId, "Ошибка при старте анализа! Попробуйте позже.", true);
         currentAnalyzingVideoId = null; // Сброс состояния
     }
 }
@@ -180,7 +180,7 @@ async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
 function startAnalysisInGemini(geminiTabId, videoId, videoUrl) {
     activeGeminiTabId = geminiTabId;
     console.debug(`[RSKIP Background] Отправляю задачу во вкладку Gemini (${activeGeminiTabId})...`);
-    sendUpdateToYouTube(videoId, "🤖 ИИ щупает видео: ищем рекламу...");
+    sendUpdateToYouTube(videoId, "ИИ анализирует видео...");
 
     chrome.tabs.sendMessage(activeGeminiTabId, {
         action: 'start_gemini_analysis',
@@ -216,6 +216,12 @@ async function handleGeminiResult(videoId, timings) {
 
     // Очищаем очередь
     delete videoWaiters[videoId];
+
+    // Закрываем вкладку Gemini для чистоты
+    if (activeGeminiTabId) {
+        chrome.tabs.remove(activeGeminiTabId).catch(() => { });
+        activeGeminiTabId = null;
+    }
 }
 
 function sendResultToYouTube(tabId, videoId, timings) {
