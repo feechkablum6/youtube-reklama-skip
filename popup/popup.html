@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Reklama Skip</title>
+    <link rel="stylesheet" href="popup.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header>
+            <div class="logo-container">
+                <div class="logo-icon">✨</div>
+                <h1>Gemini Skip</h1>
+            </div>
+            <p class="subtitle">Умный пропуск с ИИ</p>
+        </header>
+
+        <!-- Основные настройки (Глобальный рубильник) -->
+        <section class="global-controls">
+            <div class="setting-item highlight-card">
+                <div class="setting-info">
+                    <h3>Автоматический пропуск</h3>
+                    <p>Перематывать найденные зоны мгновенно</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="global-skip-toggle" checked>
+                    <span class="slider round pulse-on-active"></span>
+                </label>
+            </div>
+        </section>
+
+        <!-- Настройка категорий -->
+        <section class="categories-section">
+            <div class="section-title">
+                <h2>Категории для пропуска</h2>
+            </div>
+            
+            <div class="setting-list" id="categories-container">
+                <!-- Генерируется через JS -->
+            </div>
+        </section>
+
+        <!-- Инфо о точках -->
+        <section class="info-section">
+            <div class="info-card">
+                <span class="icon">📍</span>
+                <p>Таймлайн также отображает полезные точки (Главы, Хайлайты), они не подлежат авто-пропуску.</p>
+            </div>
+        </section>
+        
+        <!-- Footer / State -->
+        <footer>
+            <button id="clear-cache-btn" class="secondary-btn">Очистить кэш видео</button>
+            <div class="status-indicator">
+                <span class="dot active"></span>
+                <span>Готов к работе</span>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
