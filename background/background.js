@@ -101,6 +101,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ status: 'ok' });
         return true;
     }
+
+    // 3. Скрипт Gemini кинул ошибку
+    if (message.action === 'gemini_analysis_error') {
+        const videoId = message.videoId;
+        console.error(`[RSKIP Background] Ошибка от Gemini:`, message.error);
+        sendUpdateToYouTube(videoId, `❌ Ошибка ИИ: ${message.error}`, true);
+
+        if (currentAnalyzingVideoId === videoId) {
+            currentAnalyzingVideoId = null; // Освобождаем
+        }
+        delete videoWaiters[videoId]; // Убираем из ожидающих
+
+        sendResponse({ status: 'ok' });
+        return true;
+    }
 });
 
 // --- Внутренняя логика ---

@@ -57,8 +57,16 @@ async function startAnalysisFlow() {
         await waitForResponseAndExtract();
     } catch (error) {
         console.error("[RSKIP Gemini] Ошибка в потоке анализа:", error);
-        // В случае критической ошибки можно уведомить background
+        reportErrorToBackground(error.message || String(error));
     }
+}
+
+function reportErrorToBackground(msg) {
+    chrome.runtime.sendMessage({
+        action: 'gemini_analysis_error',
+        videoId: currentVideoId,
+        error: msg
+    });
 }
 
 /**
@@ -102,10 +110,25 @@ async function ensureProModelSelected() {
  * Формирует строгий промпт, вставляет в редактор и отправляет
  */
 async function insertPromptAndSend() {
-    console.log("[RSKIP Gemini] Подготавливаю и отправляю промпт...");
-    const inputArea = document.querySelector(SEL.promptInput);
+    // Пробуем несколько возможных селекторов для поля
+    const possibleInputs = [
+        SEL.promptInput,
+        'rich-textarea div[contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+        'textarea[aria-label="Enter a prompt here"]'
+    ];
+
+    let inputArea = null;
+    for (const s of possibleInputs) {
+        inputArea = document.querySelector(s);
+        if (inputArea) {
+            console.log(`[RSKIP Gemini] Поле ввода найдено по селектору: ${s}`);
+            break;
+        }
+    }
+
     if (!inputArea) {
-        throw new Error("Не найдено поле ввода промпта.");
+        throw new Error("Не найдено поле ввода промпта. Google изменил интерфейс.");
     }
 
     const promptText = `Проанализируй видео по ссылке: ${currentVideoUrl}
@@ -133,19 +156,42 @@ async function insertPromptAndSend() {
     // Фокусируемся
     inputArea.focus();
 
-    // Вставляем текст (используем document.execCommand чтобы Quill подхватил изменения, или эмулируем Paste)
-    // Современный надежный способ для ContentEditable (React/Quill):
-    inputArea.textContent = promptText;
+    // Вставляем текст
+    // 1. Пытаемся через execCommand (наиболее нативно)
+    const execSuccess = document.execCommand('insertText', false, promptText);
 
-    // Эмулируем input событие, чтобы активировалась кнопка отправки
-    inputArea.dispatchEvent(new Event('input', { bubbles: true }));
+    // 2. Фолбэк на прямое изменение
+    if (!execSuccess) {
+        console.log("[RSKIP Gemini] execCommand не сработал, использую textContent");
+        if (inputArea.tagName.toLowerCase() === 'textarea') {
+            inputArea.value = promptText;
+        } else {
+            inputArea.textContent = promptText;
+        }
+    }
+
+    // Выстреливаем события
+    inputArea.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    inputArea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
     // Небольшая задержка перед отправкой
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 600));
 
-    const sendBtn = document.querySelector(SEL.sendBtn);
+    // Ищем кнопку отправки
+    const possibleButtons = [
+        SEL.sendBtn,
+        'button[aria-label="Send message"]',
+        'button.send-button'
+    ];
+    let sendBtn = null;
+    for (const s of possibleButtons) {
+        sendBtn = document.querySelector(s);
+        if (sendBtn && !sendBtn.disabled) break;
+    }
+
     if (!sendBtn) {
-        throw new Error("Кнопка отправки не появилась.");
+        // Фоллбэк: пытаемся найти любую кнопку с SVG отправки или просто по классу, которая не отключена
+        throw new Error("Кнопка отправки не найдена или заблокирована стейтом.");
     }
 
     // Отправляем
