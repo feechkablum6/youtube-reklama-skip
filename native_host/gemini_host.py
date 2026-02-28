@@ -10,6 +10,7 @@ import json
 import struct
 import asyncio
 import traceback
+import re
 
 
 def read_message():
@@ -30,21 +31,72 @@ def send_message(msg):
     sys.stdout.buffer.flush()
 
 
-async def handle_analyze(prompt, model):
-    """Вызывает gemini-cli для анализа."""
-    from gemini_cli.client import ask
-    response_text = await ask(prompt, model=model)
+def strip_markdown_codeblock(text):
+    """Убирает markdown-обёртку ```json ... ``` или ``` ... ``` из ответа."""
+    # Паттерн: ```json\n...\n``` или ```\n...\n``` (с любым языком или без)
+    match = re.search(r'```(?:\w*)\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
 
-    # Извлекаем JSON-массив из ответа (Gemini может добавить лишний текст)
-    start_idx = response_text.find('[')
-    end_idx = response_text.rfind(']')
+
+MAX_RETRIES = 2
+RETRY_PROMPT = "Ты ответил пустым сообщением или не в том формате. Повтори анализ. Выведи СТРОГО валидный JSON-массив тайимингов и больше ничего."
+
+
+def extract_json_array(text):
+    """Извлекает JSON-массив из текста, очищая markdown-обёртки."""
+    if not text or not text.strip():
+        return None
+
+    cleaned = strip_markdown_codeblock(text)
+    start_idx = cleaned.find('[')
+    end_idx = cleaned.rfind(']')
     if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
-        raise ValueError(f"Ответ ИИ не содержит JSON-массив: {response_text[:200]}")
+        return None
 
-    data = json.loads(response_text[start_idx:end_idx + 1])
-    if not isinstance(data, list):
-        raise ValueError("Ответ ИИ не является массивом")
-    return data
+    try:
+        data = json.loads(cleaned[start_idx:end_idx + 1])
+        if isinstance(data, list):
+            return data
+    except json.JSONDecodeError:
+        return None
+    return None
+
+
+async def handle_analyze(prompt, model):
+    """Вызывает gemini-cli для анализа с ретраями в том же чате."""
+    from gemini_cli.client import chat_session, prepend_prompt
+
+    client, chat = await chat_session(model=model)
+
+    # Первый запрос
+    response = await chat.send_message(prepend_prompt(prompt))
+    response_text = response.text or ""
+
+    sys.stderr.write(f"[RSKIP Host] Ответ Gemini ({len(response_text)} символов): {response_text[:150]}...\n")
+    sys.stderr.flush()
+
+    data = extract_json_array(response_text)
+    if data is not None:
+        return data
+
+    # Ретраи в том же чате — Gemini видит контекст предыдущего запроса
+    for attempt in range(1, MAX_RETRIES + 1):
+        sys.stderr.write(f"[RSKIP Host] Пустой/невалидный ответ, ретрай {attempt}/{MAX_RETRIES}...\n")
+        sys.stderr.flush()
+
+        response = await chat.send_message(RETRY_PROMPT)
+        response_text = response.text or ""
+
+        sys.stderr.write(f"[RSKIP Host] Ретрай {attempt} ответ ({len(response_text)} символов): {response_text[:150]}...\n")
+        sys.stderr.flush()
+
+        data = extract_json_array(response_text)
+        if data is not None:
+            return data
+
+    raise ValueError(f"ИИ не вернул валидный JSON после {MAX_RETRIES + 1} попыток. Последний ответ: {response_text[:300]}")
 
 
 def main():
