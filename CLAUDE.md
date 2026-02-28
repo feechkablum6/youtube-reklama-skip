@@ -44,8 +44,10 @@ YouTube (youtube.js)
         → если промах: chrome.runtime.sendNativeMessage('com.rskip.gemini', ...)
         → Native Host (gemini_host.py)
             → получает промпт через stdin (Native Messaging протокол)
-            → вызывает gemini_cli.client.ask()
+            → открывает chat_session() через gemini-cli
+            → очищает ответ от markdown-обёрток (```json ... ```)
             → извлекает JSON-массив из ответа ИИ
+            → при пустом/невалидном ответе — ретрай в том же чате (до 2 раз)
             → возвращает результат через stdout
         → Background кэширует и рассылает всем YouTube-вкладкам
     → YouTube получает тайминги
@@ -55,7 +57,7 @@ YouTube (youtube.js)
 
 ### Стратегия Native Messaging
 
-Background вызывает `chrome.runtime.sendNativeMessage()` с промптом. Chrome запускает Python-процесс `gemini_host.py`, который общается через stdin/stdout по протоколу Native Messaging (4 байта длины little-endian + JSON). Host импортирует `gemini_cli.client.ask()` для отправки запроса в Gemini API. Результат (JSON-массив таймингов) возвращается в callback `sendNativeMessage`.
+Background вызывает `chrome.runtime.sendNativeMessage()` с промптом. Chrome запускает Python-процесс `gemini_host.py`, который общается через stdin/stdout по протоколу Native Messaging (4 байта длины little-endian + JSON). Host использует `gemini_cli.client.chat_session()` для создания чат-сессии с Gemini — это позволяет отправлять follow-up сообщения в том же контексте при невалидном ответе. Ответ очищается от markdown-обёрток (`strip_markdown_codeblock`), затем из него извлекается JSON-массив (`extract_json_array`). При пустом или невалидном ответе выполняется до 2 ретраев в том же чате. Результат (JSON-массив таймингов) возвращается в callback `sendNativeMessage`.
 
 ### Хранилище
 
@@ -102,11 +104,15 @@ Background вызывает `chrome.runtime.sendNativeMessage()` с промпт
 
 | Тип | Визуал | Автоскип по умолчанию |
 |-----|--------|-----------------------|
-| `sponsor` | Красная полоса | ВКЛ |
+| `sponsor` | Фуксия полоса (fuchsia-500) | ВКЛ |
 | `selfpromo` | Оранжевая полоса | ВКЛ |
 | `interaction` | Жёлтая полоса | ВКЛ |
 | `outro` | Серая полоса | ВКЛ |
 | `preview` | Голубая полоса | ВЫКЛ |
 | `greeting` | Фиолетовая полоса | ВЫКЛ |
-| `chapter` | Зелёная точка-маркер | — (точка) |
-| `highlight` | Золотая звезда | — (точка) |
+| `chapter` | Зелёная вертикальная линия + иконка-маркер | — (точка) |
+| `highlight` | Золотая вертикальная линия + звезда | — (точка) |
+
+### Тултипы таймлайна
+
+Маркеры на прогресс-баре не используют CSS `:hover` (YouTube перехватывает все mouse-события overlay-элементами). Вместо этого единый плавающий тултип (`#rskip-floating-tooltip`) позиционируется программно через `mousemove` на `.ytp-progress-bar-container`. Позиция зажимается (clamp) по краям viewport, стрелка тултипа смещается через CSS-переменную `--arrow-offset`. При наведении на маркер скрывается нативное превью YouTube (`ytp-tooltip`, `ytp-preview`).
