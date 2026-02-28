@@ -109,7 +109,15 @@ function setupListeners() {
     document.getElementById('clear-cache-btn').addEventListener('click', async (e) => {
         const btn = e.target;
         btn.textContent = 'Очистка...';
-        await chrome.storage.local.remove('rskip_cache_v1');
+
+        // Получаем все ключи и фильтруем те, что относятся к кэшу (префикс rskip_cache_v1_)
+        const allData = await chrome.storage.local.get(null);
+        const keysToRemove = Object.keys(allData).filter(k => k.startsWith('rskip_cache_v1_') || k === 'rskip_cache_v1');
+
+        if (keysToRemove.length > 0) {
+            await chrome.storage.local.remove(keysToRemove);
+        }
+
         setTimeout(() => {
             btn.innerHTML = 'Кэш очищен <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-top; margin-left: 4px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             setTimeout(() => btn.textContent = 'Очистить кэш видео', 2000);
