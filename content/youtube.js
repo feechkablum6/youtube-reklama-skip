@@ -84,7 +84,7 @@ function injectStyles() {
         @keyframes rskip-spin { 100% { transform: rotate(360deg); } }
         
         #rskip-toast-container {
-            position: fixed; bottom: 120px; right: 24px; z-index: 99999;
+            position: fixed; top: 80px; right: 24px; z-index: 99999;
             display: flex; align-items: center; gap: 12px;
             background: rgba(15, 17, 21, 0.75);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
@@ -93,17 +93,20 @@ function injectStyles() {
             color: #f8fafc; font-family: 'Inter', 'Roboto', sans-serif; font-size: 14px; font-weight: 500;
             pointer-events: auto; transition: all 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
             box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            opacity: 0; transform: translateY(20px) scale(0.95);
+            opacity: 0; transform: translateY(-20px) scale(0.95);
         }
         #rskip-toast-container.rskip-visible { opacity: 1; transform: translateY(0) scale(1); }
-        
+
         #rskip-toast-container.rskip-persistent {
-            padding: 10px; bottom: 24px; right: 24px; border-radius: 50%;
+            width: 40px; height: 40px; padding: 0; top: 80px; right: 24px; border-radius: 50%;
+            justify-content: center; overflow: hidden;
             background: rgba(15, 17, 21, 0.9); box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
             border-color: rgba(168, 85, 247, 0.4); cursor: help;
+            transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), border-radius 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s ease, all 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         #rskip-toast-container.rskip-persistent:hover {
-            padding: 10px 18px; border-radius: 100px; background: rgba(23, 25, 30, 0.95);
+            width: auto; height: 40px; padding: 0 18px; border-radius: 100px;
+            background: rgba(23, 25, 30, 0.95);
             box-shadow: 0 0 25px rgba(168, 85, 247, 0.5);
         }
         
@@ -119,6 +122,8 @@ function injectStyles() {
         }
         
         .rskip-icon-wrapper { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        #rskip-toast-container.rskip-persistent .rskip-icon-wrapper { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+        #rskip-toast-container.rskip-persistent:hover .rskip-icon-wrapper { position: static; transform: none; }
         
         /* Timelines / Markers */
         .rskip-marker { transition: filter 0.2s, transform 0.2s; cursor: pointer; transform-origin: bottom; }
@@ -340,14 +345,15 @@ function drawMarkers() {
                 const marker = document.createElement('div');
                 marker.className = 'rskip-marker';
 
-                const desc = t.description || 'ИИ пометил этот момент без описания.';
+                // Экранируем любой пользовательский ввод (в нашем случае от ИИ), чтобы избежать XSS
+                const safeDesc = escapeHTML(t.description || 'ИИ пометил этот момент без описания.');
                 const tooltipHtml = `
                     <div class="rskip-tooltip">
                         <div class="rskip-tt-header">
                             <span class="rskip-tt-type" style="color: ${styleDef.color}">${t.type}</span>
                             <span class="rskip-tt-time">${formatTime(t.start)}${t.end ? ' - ' + formatTime(t.end) : ''}</span>
                         </div>
-                        <div class="rskip-tt-desc">${desc}</div>
+                        <div class="rskip-tt-desc">${safeDesc}</div>
                     </div>
                 `;
 
@@ -374,7 +380,7 @@ function drawMarkers() {
 
                 // Добавим тултип при наведении (нужно вернуть pointer-events на метку)
                 marker.style.pointerEvents = 'auto';
-                
+
                 // Перехватываем hover чтобы скрыть дефолтный тултип Youtube
                 marker.addEventListener('mouseenter', () => {
                     document.body.classList.add('rskip-hovering-marker');
@@ -392,9 +398,19 @@ function drawMarkers() {
     }, 1000);
 }
 
-// Утилита
+// Утилита форматирования времени
 function formatTime(seconds) {
     const min = Math.floor(seconds / 60);
     const sec = Math.floor(seconds % 60);
     return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+}
+
+// Утилита экранирования HTML
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
