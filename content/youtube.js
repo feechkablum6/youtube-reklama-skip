@@ -17,7 +17,7 @@ let userSettings = {
 // Настройки цветных меток (Полосы и Точки)
 const MARKER_STYLES = {
     // Сегменты (Полосы)
-    sponsor: { color: 'rgba(239, 68, 68, 0.8)', height: '100%', type: 'segment' }, // red-500
+    sponsor: { color: 'rgba(217, 70, 239, 0.85)', height: '100%', type: 'segment' }, // fuchsia-500 (не красный — чтобы не сливался с YouTube)
     selfpromo: { color: 'rgba(249, 115, 22, 0.8)', height: '100%', type: 'segment' }, // orange-500
     interaction: { color: 'rgba(234, 179, 8, 0.8)', height: '100%', type: 'segment' }, // yellow-500
     outro: { color: 'rgba(100, 116, 139, 0.8)', height: '100%', type: 'segment' }, // slate-500
@@ -25,8 +25,8 @@ const MARKER_STYLES = {
     greeting: { color: 'rgba(139, 92, 246, 0.8)', height: '100%', type: 'segment' }, // violet-500
 
     // Точки
-    chapter: { color: '#00FF00', size: '14px', type: 'point', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00FF00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>' }, // Зеленая точка-маркер
-    highlight: { color: '#FFD700', size: '14px', type: 'point', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="#FFD700" stroke="#FFD700" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' } // Золотая звезда
+    chapter: { color: '#00FF00', size: '14px', type: 'chapter', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00FF00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>' }, // Зеленая вертикальная линия + иконка
+    highlight: { color: '#FFD700', size: '14px', type: 'chapter', icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="#FFD700" stroke="#FFD700" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' } // Золотая вертикальная линия + звезда
 };
 
 // Конфигурация того, что мы скипаем автоматически
@@ -126,26 +126,46 @@ function injectStyles() {
         #rskip-toast-container.rskip-persistent:hover .rskip-icon-wrapper { position: static; transform: none; }
         
         /* Timelines / Markers */
-        .rskip-marker { transition: filter 0.2s, transform 0.2s; cursor: pointer; transform-origin: bottom; }
-        .rskip-marker:hover { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); transform: scaleY(1.4); z-index: 1000 !important; }
-        
-        body.rskip-hovering-marker .ytp-tooltip { display: none !important; opacity: 0 !important; }
-
-        .rskip-tooltip {
-            position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%) translateY(10px);
-            background: rgba(15, 17, 21, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px 16px;
-            color: #f8fafc; font-family: 'Inter', 'Roboto', sans-serif; font-size: 13px;
-            pointer-events: none; width: max-content; max-width: 320px; white-space: normal; opacity: 0;
-            transition: opacity 0.2s, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.6); z-index: 99999; display: flex; flex-direction: column; gap: 4px;
+        .rskip-marker { transform-origin: bottom; }
+        .rskip-chapter-line {
+            position: absolute; width: 2px; height: 200%;
+            bottom: 0; transform: translateX(-50%);
+            pointer-events: none; z-index: 36;
         }
-        .rskip-tooltip::after {
-            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+        .rskip-chapter-line[data-color="green"] {
+            background: linear-gradient(to top, #00FF00 0%, rgba(0,255,0,0.3) 70%, transparent 100%);
+            box-shadow: 0 0 4px rgba(0,255,0,0.5);
+        }
+        .rskip-chapter-line[data-color="gold"] {
+            background: linear-gradient(to top, #FFD700 0%, rgba(255,215,0,0.3) 70%, transparent 100%);
+            box-shadow: 0 0 4px rgba(255,215,0,0.5);
+        }
+        .rskip-chapter-icon {
+            position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
+            pointer-events: none;
+        }
+        .rskip-chapter-icon[data-color="green"] { filter: drop-shadow(0 0 3px rgba(0,255,0,0.6)); }
+        .rskip-chapter-icon[data-color="gold"] { filter: drop-shadow(0 0 3px rgba(255,215,0,0.6)); }
+
+        body.rskip-hovering-marker .ytp-tooltip,
+        body.rskip-hovering-marker .ytp-preview { display: none !important; opacity: 0 !important; visibility: hidden !important; }
+
+        #rskip-floating-tooltip {
+            position: absolute; transform: translateX(-50%) translateY(4px);
+            background: rgba(15, 17, 21, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 12px 16px;
+            color: #f8fafc; font-family: 'Inter', 'Roboto', sans-serif; font-size: 13px;
+            pointer-events: none; width: max-content; max-width: 320px; white-space: normal;
+            opacity: 0; transition: opacity 0.15s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6); z-index: 99999;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        #rskip-floating-tooltip::after {
+            content: ''; position: absolute; top: 100%; left: calc(50% + var(--arrow-offset, 0px)); margin-left: -6px;
             border-width: 6px; border-style: solid; border-color: rgba(15,17,21,0.95) transparent transparent transparent;
         }
-        .rskip-marker:hover .rskip-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
-        
+        #rskip-floating-tooltip.rskip-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
         .rskip-tt-header { display: flex; align-items: center; gap: 8px; }
         .rskip-tt-type { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.6px; }
         .rskip-tt-time { color: rgba(255,255,255,0.5); font-size: 11px; }
@@ -317,6 +337,122 @@ function clearMarkers() {
     existingContainers.forEach(el => el.remove());
 }
 
+function ensureFloatingTooltip() {
+    let tooltip = document.getElementById('rskip-floating-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'rskip-floating-tooltip';
+        document.body.appendChild(tooltip);
+    }
+    return tooltip;
+}
+
+function showFloatingTooltip(timing, mouseX, progressBarRect) {
+    const tooltip = ensureFloatingTooltip();
+    const styleDef = MARKER_STYLES[timing.type];
+    if (!styleDef) return;
+
+    const safeDesc = escapeHTML(timing.description || 'ИИ пометил этот момент без описания.');
+    tooltip.innerHTML = `
+        <div class="rskip-tt-header">
+            <span class="rskip-tt-type" style="color: ${styleDef.color}">${timing.type}</span>
+            <span class="rskip-tt-time">${formatTime(timing.start)}${timing.end ? ' - ' + formatTime(timing.end) : ''}</span>
+        </div>
+        <div class="rskip-tt-desc">${safeDesc}</div>
+    `;
+
+    // Сначала ставим видимым но за кадром, чтобы измерить размеры
+    tooltip.style.left = '-9999px';
+    tooltip.style.top = '-9999px';
+    tooltip.classList.add('rskip-visible');
+
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+    const padding = 8; // Минимальный отступ от края экрана
+    const viewportWidth = window.innerWidth;
+
+    // Clamping по горизонтали — не даём выйти за края экрана
+    let left = mouseX;
+    const halfWidth = tooltipWidth / 2;
+
+    if (left - halfWidth < padding) {
+        left = padding + halfWidth;
+    } else if (left + halfWidth > viewportWidth - padding) {
+        left = viewportWidth - padding - halfWidth;
+    }
+
+    // Стрелка тултипа смещается чтобы указывать на реальную позицию мыши
+    const arrowOffset = mouseX - left;
+    tooltip.style.setProperty('--arrow-offset', arrowOffset + 'px');
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = (progressBarRect.top + window.scrollY - tooltipHeight - 12) + 'px';
+    document.body.classList.add('rskip-hovering-marker');
+}
+
+function hideFloatingTooltip() {
+    const tooltip = document.getElementById('rskip-floating-tooltip');
+    if (tooltip) tooltip.classList.remove('rskip-visible');
+    document.body.classList.remove('rskip-hovering-marker');
+}
+
+// Находит тайминг под курсором по позиции мыши на прогресс-баре
+function findTimingAtPosition(mouseX, progressBarRect, duration) {
+    const relativeX = mouseX - progressBarRect.left;
+    const hoverTime = (relativeX / progressBarRect.width) * duration;
+
+    for (const t of currentTimings) {
+        const styleDef = MARKER_STYLES[t.type];
+        if (!styleDef) continue;
+
+        if (styleDef.type === 'segment' && hoverTime >= t.start && hoverTime <= t.end) {
+            return t;
+        }
+        if (styleDef.type === 'point' || styleDef.type === 'chapter') {
+            // Для точек/чаптеров — допуск ±1% длительности
+            const tolerance = duration * 0.01;
+            if (Math.abs(hoverTime - t.start) <= tolerance) {
+                return t;
+            }
+        }
+    }
+    return null;
+}
+
+let progressBarListenersAttached = false;
+
+function attachProgressBarListeners() {
+    if (progressBarListenersAttached) return;
+
+    // Ищем зону наведения YouTube (она перехватывает все события мыши)
+    const hoverArea = document.querySelector('.ytp-progress-bar-container') ||
+                      document.querySelector('.ytp-progress-bar');
+    const videoElement = document.querySelector('video');
+    if (!hoverArea || !videoElement) return;
+
+    progressBarListenersAttached = true;
+
+    hoverArea.addEventListener('mousemove', (e) => {
+        if (currentTimings.length === 0 || !videoElement.duration) return;
+
+        const progressList = document.querySelector('.ytp-progress-list');
+        if (!progressList) return;
+
+        const rect = progressList.getBoundingClientRect();
+        const timing = findTimingAtPosition(e.clientX, rect, videoElement.duration);
+
+        if (timing) {
+            showFloatingTooltip(timing, e.clientX, rect);
+        } else {
+            hideFloatingTooltip();
+        }
+    });
+
+    hoverArea.addEventListener('mouseleave', () => {
+        hideFloatingTooltip();
+    });
+}
+
 function drawMarkers() {
     // Ждем пока загрузится таймлайн плеера
     const checkTimeline = setInterval(() => {
@@ -345,54 +481,43 @@ function drawMarkers() {
                 const marker = document.createElement('div');
                 marker.className = 'rskip-marker';
 
-                // Экранируем любой пользовательский ввод (в нашем случае от ИИ), чтобы избежать XSS
-                const safeDesc = escapeHTML(t.description || 'ИИ пометил этот момент без описания.');
-                const tooltipHtml = `
-                    <div class="rskip-tooltip">
-                        <div class="rskip-tt-header">
-                            <span class="rskip-tt-type" style="color: ${styleDef.color}">${t.type}</span>
-                            <span class="rskip-tt-time">${formatTime(t.start)}${t.end ? ' - ' + formatTime(t.end) : ''}</span>
-                        </div>
-                        <div class="rskip-tt-desc">${safeDesc}</div>
-                    </div>
-                `;
-
                 if (styleDef.type === 'segment') {
-                    // Рисуем полосу (заливку региона)
                     const endPercent = (t.end / duration) * 100;
                     const widthPercent = endPercent - startPercent;
 
                     marker.style.cssText = `
-                        position: absolute; left: ${startPercent}%; 
+                        position: absolute; left: ${startPercent}%;
                         width: ${widthPercent}%; height: ${styleDef.height};
                         background-color: ${styleDef.color};
+                        pointer-events: none;
                     `;
-                    marker.innerHTML = tooltipHtml;
-                } else if (styleDef.type === 'point') {
-                    // Рисуем точку (SVG-иконку над таймлайном)
+                } else if (styleDef.type === 'chapter') {
+                    // Вертикальная линия + иконка сверху
+                    const lineColor = t.type === 'highlight' ? 'gold' : 'green';
                     marker.style.cssText = `
-                        position: absolute; left: calc(${startPercent}% - ${parseInt(styleDef.size) / 2}px); 
-                        bottom: 12px; /* Чуть выше линии */
-                        display: flex; justify-content: center; align-items: center;
+                        position: absolute; left: ${startPercent}%;
+                        width: 0; height: 100%;
+                        pointer-events: none;
                     `;
-                    marker.innerHTML = styleDef.icon + tooltipHtml; // SVG point + Tooltip
+                    marker.innerHTML = `
+                        <div class="rskip-chapter-line" data-color="${lineColor}"></div>
+                        <div class="rskip-chapter-icon" data-color="${lineColor}">${styleDef.icon}</div>
+                    `;
+                } else if (styleDef.type === 'point') {
+                    marker.style.cssText = `
+                        position: absolute; left: calc(${startPercent}% - ${parseInt(styleDef.size) / 2}px);
+                        bottom: 12px;
+                        display: flex; justify-content: center; align-items: center;
+                        pointer-events: none;
+                    `;
+                    marker.innerHTML = styleDef.icon;
                 }
-
-                // Добавим тултип при наведении (нужно вернуть pointer-events на метку)
-                marker.style.pointerEvents = 'auto';
-
-                // Перехватываем hover чтобы скрыть дефолтный тултип Youtube
-                marker.addEventListener('mouseenter', () => {
-                    document.body.classList.add('rskip-hovering-marker');
-                });
-                marker.addEventListener('mouseleave', () => {
-                    document.body.classList.remove('rskip-hovering-marker');
-                });
 
                 container.appendChild(marker);
             });
 
             progressBar.appendChild(container);
+            attachProgressBarListeners();
             console.log("[RSKIP YouTube] Метки успешно отрисованы.");
         }
     }, 1000);
