@@ -1,0 +1,7 @@
+{
+  "name": "com.rskip.gemini",
+  "description": "Native messaging host for YouTube Reklama Skip — calls gemini-cli",
+  "path": "/PLACEHOLDER/native_host/gemini_host.py",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://PLACEHOLDER/"]
+}

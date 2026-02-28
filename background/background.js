@@ -1,119 +1,86 @@
 /**
  * Background Service Worker
- * Управляет связью между вкладками YouTube и Gemini, кэшированием результатов.
+ * Управляет связью между вкладками YouTube и gemini-cli через Native Messaging, кэшированием результатов.
  */
 
 // --- Константы ---
 const CACHE_KEY = 'rskip_cache_v1';
-const GEMINI_URL = 'https://gemini.google.com/app';
+const NATIVE_HOST_NAME = 'com.rskip.gemini';
 
-// В памяти будем держать ID текущего анализируемого видео, чтобы не спамить Gemini одинаковыми запросами.
+// В памяти: ID текущего анализируемого видео, чтобы не спамить одинаковыми запросами.
 let currentAnalyzingVideoId = null;
-
-// Идентификатор вкладки Gemini, которую мы используем для анализа
-let activeGeminiTabId = null;
 
 // Подписчики: вкладки YouTube, которые ждут ответа по конкретному видео
 // Формат: { "VIDEO_ID": [tabId1, tabId2] }
 let videoWaiters = {};
 
+// --- Промпт для Gemini ---
+const ANALYSIS_PROMPT_TEMPLATE = (videoUrl) => `Проанализируй видео по ссылке: ${videoUrl}
+Найди точные тайминги (в секундах) для следующих категорий (если они есть):
+
+Сегменты (имеют начало и конец):
+1. sponsor: Платная реклама, реферальные ссылки, прямая реклама.
+2. selfpromo: Неоплачиваемая или самореклама.
+3. interaction: Напоминания поставить лайк, подписаться.
+4. outro: Титры или финальные заставки.
+5. preview: Подборка фрагментов того, что будет дальше.
+6. greeting: Трейлеры, приветствия, болтовня в начале.
+
+Точки (имеют только время начала):
+7. chapter: Названия основных глав.
+8. highlight: Самая важная часть видео.
+
+Выведи СТРОГО валидный JSON-массив и больше ни единого слова (без markdown). Для каждого найденного элемента ОБЯЗАТЕЛЬНО добавь поле "description" с кратким (1 короткое предложение) описанием того, что происходит в этом моменте или сегменте (например: "Реклама Raid Shadow Legends" или "Напоминает о подписке на канал").
+Пример:
+[
+  {"type": "sponsor", "start": 15, "end": 45, "description": "Прямая реклама VPN"},
+  {"type": "highlight", "start": 120, "description": "Начало сборки ПК"}
+]`;
+
 // --- Базовые утилиты ---
 
 /**
- * Получить кэш из chrome.storage.local
+ * Получить кэш из chrome.storage.local по ID видео
  */
-async function getCache() {
-    const data = await chrome.storage.local.get(CACHE_KEY);
-    return data[CACHE_KEY] || {};
+async function getCache(videoId) {
+    const key = `${CACHE_KEY}_${videoId}`;
+    const data = await chrome.storage.local.get(key);
+    if (data[key]) {
+        return data[key];
+    }
+
+    // Fallback: кэш старого формата (миграция на лету)
+    const oldData = await chrome.storage.local.get(CACHE_KEY);
+    if (oldData[CACHE_KEY] && oldData[CACHE_KEY][videoId]) {
+        const timings = oldData[CACHE_KEY][videoId];
+        await chrome.storage.local.set({ [key]: timings });
+        return timings;
+    }
+
+    return undefined;
 }
 
 /**
  * Сохранить результаты в кэш
- * @param {string} videoId 
- * @param {Array} timings 
  */
 async function saveToCache(videoId, timings) {
-    const cache = await getCache();
-    cache[videoId] = timings;
-    await chrome.storage.local.set({ [CACHE_KEY]: cache });
+    const key = `${CACHE_KEY}_${videoId}`;
+    await chrome.storage.local.set({ [key]: timings });
     console.debug(`[RSKIP Background] Кэш сохранен для видео ${videoId}`);
 }
-
-/**
- * Найти уже открытую вкладку Gemini
- */
-async function findGeminiTab() {
-    const tabs = await chrome.tabs.query({ url: "*://gemini.google.com/app*" });
-    if (tabs.length > 0) {
-        return tabs[0];
-    }
-    return null;
-}
-
-/**
- * Открыть новую вкладку Gemini (неактивную в фоне)
- */
-async function openGeminiTab() {
-    const tab = await chrome.tabs.create({ url: GEMINI_URL, active: false });
-    return tab;
-}
-
-let pendingVideoToAnalyze = null; // { videoId, videoUrl }
 
 // --- Обработка сообщений ---
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // 0. Скрипт Gemini прогрузился и готов
-    if (message.action === 'gemini_ready') {
-        const geminiTabId = sender.tab.id;
-        console.debug(`[RSKIP Background] Gemini скрипт загрузился во вкладке ${geminiTabId}`);
-        if (pendingVideoToAnalyze) {
-            startAnalysisInGemini(geminiTabId, pendingVideoToAnalyze.videoId, pendingVideoToAnalyze.videoUrl);
-            pendingVideoToAnalyze = null;
-        }
-        sendResponse({ status: 'ok' });
-        return true;
-    }
-
-    // 1. YouTube запрашивает анализ видео
     if (message.action === 'analyze_video_request') {
         const videoId = message.videoId;
         const videoUrl = message.videoUrl;
         const senderTabId = sender.tab.id;
 
         console.debug(`[RSKIP Background] Получен запрос на анализ ${videoId}`);
-
         handleYouTubeRequest(videoId, videoUrl, senderTabId);
 
-        // Возвращаем true, чтобы оставить канал открытым для асинхронного ответа (sendResponse)
         sendResponse({ status: 'processing' });
-        return true;
-    }
-
-    // 2. Скрипт Gemini прислал результаты анализа
-    if (message.action === 'gemini_analysis_result') {
-        const videoId = message.videoId;
-        const timings = message.timings;
-
-        console.debug(`[RSKIP Background] Получен результат от Gemini для ${videoId}`, timings);
-        handleGeminiResult(videoId, timings);
-
-        sendResponse({ status: 'ok' });
-        return true;
-    }
-
-    // 3. Скрипт Gemini кинул ошибку
-    if (message.action === 'gemini_analysis_error') {
-        const videoId = message.videoId;
-        console.error(`[RSKIP Background] Ошибка от Gemini:`, message.error);
-        sendUpdateToYouTube(videoId, `Ошибка ИИ: ${message.error}`, true);
-
-        if (currentAnalyzingVideoId === videoId) {
-            currentAnalyzingVideoId = null; // Освобождаем
-        }
-        delete videoWaiters[videoId]; // Убираем из ожидающих
-
-        sendResponse({ status: 'ok' });
         return true;
     }
 });
@@ -123,16 +90,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
     try {
         // Проверяем локальный кэш
-        const cache = await getCache();
-        if (cache[videoId]) {
-            console.debug(`[RSKIP Background] Видео ${videoId} найдено в кэше! Отправляем ответ Ютубу.`);
-            sendResultToYouTube(senderTabId, videoId, cache[videoId]);
+        const cachedTimings = await getCache(videoId);
+        if (cachedTimings) {
+            console.debug(`[RSKIP Background] Видео ${videoId} найдено в кэше!`);
+            sendResultToYouTube(senderTabId, videoId, cachedTimings);
             return;
         }
 
         // Если уже анализируем это видео
         if (currentAnalyzingVideoId === videoId) {
-            console.debug(`[RSKIP Background] Видео ${videoId} уже анализируется.. добавляем в очередь ожидания.`);
+            console.debug(`[RSKIP Background] Видео ${videoId} уже анализируется, добавляем в очередь.`);
             if (!videoWaiters[videoId]) videoWaiters[videoId] = [];
             videoWaiters[videoId].push(senderTabId);
             return;
@@ -143,85 +110,92 @@ async function handleYouTubeRequest(videoId, videoUrl, senderTabId) {
         if (!videoWaiters[videoId]) videoWaiters[videoId] = [];
         videoWaiters[videoId].push(senderTabId);
 
-        sendUpdateToYouTube(videoId, "Открываем чат Gemini...");
+        sendUpdateToYouTube(videoId, "ИИ анализирует видео...");
 
-        // Ищем открытую вкладку Gemini
-        let geminiTab = await findGeminiTab();
-        if (!geminiTab) {
-            console.debug(`[RSKIP Background] Вкладка Gemini не найдена. Создаю новую...`);
-            pendingVideoToAnalyze = { videoId, videoUrl };
-            await openGeminiTab();
-            // Дальше ждем события 'gemini_ready'
-            return;
-        } else {
-            // Вкладка уже существует, проверим отвечает ли она (скрипт заинжекчен)
-            console.debug(`[RSKIP Background] Вкладка найдена. Проверяю готовность...`);
-            try {
-                const res = await chrome.tabs.sendMessage(geminiTab.id, { action: 'ping' });
-                if (res && res.status === 'ok') {
-                    startAnalysisInGemini(geminiTab.id, videoId, videoUrl);
-                } else {
-                    throw new Error("No response"); // Скрипт не ответил, перезагружаем
+        // Вызываем gemini-cli через Native Messaging
+        const prompt = ANALYSIS_PROMPT_TEMPLATE(videoUrl);
+
+        chrome.runtime.sendNativeMessage(
+            NATIVE_HOST_NAME,
+            { action: 'analyze', prompt: prompt, model: 'pro' },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    const errorMsg = chrome.runtime.lastError.message;
+                    console.error(`[RSKIP Background] Native host ошибка: ${errorMsg}`);
+                    sendUpdateToYouTube(videoId, `Ошибка native host: ${errorMsg}`, true);
+                    currentAnalyzingVideoId = null;
+                    delete videoWaiters[videoId];
+                    return;
                 }
-            } catch (e) {
-                console.debug(`[RSKIP Background] Gemini не отвечает, перезагружаю вкладку...`);
-                pendingVideoToAnalyze = { videoId, videoUrl };
-                await chrome.tabs.reload(geminiTab.id);
+
+                if (response && response.success) {
+                    console.debug(`[RSKIP Background] Получен результат от gemini-cli для ${videoId}`);
+                    handleGeminiResult(videoId, response.data);
+                } else {
+                    const error = response ? response.error : 'Пустой ответ от native host';
+                    console.error(`[RSKIP Background] Ошибка анализа: ${error}`);
+                    sendUpdateToYouTube(videoId, `Ошибка ИИ: ${error}`, true);
+                    currentAnalyzingVideoId = null;
+                    delete videoWaiters[videoId];
+                }
             }
-        }
+        );
 
     } catch (error) {
         console.error(`[RSKIP Background] Ошибка при обработке запроса:`, error);
-        sendUpdateToYouTube(videoId, "Ошибка при старте анализа! Попробуйте позже.", true);
-        currentAnalyzingVideoId = null; // Сброс состояния
+        sendUpdateToYouTube(videoId, `Ошибка: ${error.message || 'Неизвестная ошибка'}`, true);
+        currentAnalyzingVideoId = null;
     }
-}
-
-function startAnalysisInGemini(geminiTabId, videoId, videoUrl) {
-    activeGeminiTabId = geminiTabId;
-    console.debug(`[RSKIP Background] Отправляю задачу во вкладку Gemini (${activeGeminiTabId})...`);
-    sendUpdateToYouTube(videoId, "ИИ анализирует видео...");
-
-    chrome.tabs.sendMessage(activeGeminiTabId, {
-        action: 'start_gemini_analysis',
-        videoId: videoId,
-        videoUrl: videoUrl
-    });
 }
 
 function sendUpdateToYouTube(videoId, text, isError = false) {
     const waitingTabs = videoWaiters[videoId] || [];
+
     for (const tabId of waitingTabs) {
         chrome.tabs.sendMessage(tabId, {
             action: 'rskip_status_update',
             text: text,
             isError: isError
-        }).catch(e => { }); // Игнорим ошибки (если таба закрылась)
+        }).catch(() => {});
     }
+
+    // Широковещательная рассылка (на случай если SW скинул память)
+    chrome.tabs.query({ url: "*://*.youtube.com/watch*" }, (tabs) => {
+        for (const tab of tabs) {
+            if (!waitingTabs.includes(tab.id)) {
+                chrome.tabs.sendMessage(tab.id, {
+                    action: 'rskip_status_update',
+                    text: text,
+                    isError: isError
+                }).catch(() => {});
+            }
+        }
+    });
 }
 
 async function handleGeminiResult(videoId, timings) {
     if (currentAnalyzingVideoId === videoId) {
-        currentAnalyzingVideoId = null; // Освобождаем "рабочего"
+        currentAnalyzingVideoId = null;
     }
 
-    // Сохраняем в кэш
     await saveToCache(videoId, timings);
 
-    // Рассылаем всем ждущим вкладкам YouTube этот результат
+    // Рассылаем всем ждущим вкладкам YouTube
     const waitingTabs = videoWaiters[videoId] || [];
     for (const tabId of waitingTabs) {
         sendResultToYouTube(tabId, videoId, timings);
     }
 
-    // Очищаем очередь
-    delete videoWaiters[videoId];
+    // Широковещательная рассылка
+    chrome.tabs.query({ url: "*://*.youtube.com/watch*" }, (tabs) => {
+        for (const tab of tabs) {
+            if (!waitingTabs.includes(tab.id)) {
+                sendResultToYouTube(tab.id, videoId, timings);
+            }
+        }
+    });
 
-    // Закрываем вкладку Gemini для чистоты
-    if (activeGeminiTabId) {
-        chrome.tabs.remove(activeGeminiTabId).catch(() => { });
-        activeGeminiTabId = null;
-    }
+    delete videoWaiters[videoId];
 }
 
 function sendResultToYouTube(tabId, videoId, timings) {
@@ -231,7 +205,7 @@ function sendResultToYouTube(tabId, videoId, timings) {
         videoId: videoId,
         timings: timings
     }).catch(err => {
-        console.error(`[RSKIP Background] Вкладка ${tabId} больше недоступна (возможно закрыта).`);
+        console.error(`[RSKIP Background] Вкладка ${tabId} больше недоступна.`);
     });
 }
 
